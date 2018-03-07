@@ -6,30 +6,9 @@ import math
 import pygame
 from pygame.locals import *
 
-# enableQL = True
-qlAlpha = 0.7
-qlGamma = 0.8
-qlResolution = 8
-qlAliveReward = 1
-qlDeadReward = -1000
-qlEpsilon = 0
-qlExploreJumpRate = 0.1
-qlRound = 0
+import qlBot
 
-
-class QL:
-    A = None
-    S = {}
-    Q = {}
-    enableQL = True
-
-    def refresh(self):
-        A = None
-        S = {}
-
-
-ql = QL()
-maxScore = 0
+bot = qlBot.qlBot()
 
 FPS = 100
 SCREENWIDTH = 288
@@ -74,47 +53,6 @@ PIPES_LIST = (
     'assets/sprites/pipe-green.png',
     'assets/sprites/pipe-red.png',
 )
-
-
-def updateQ(Q, S, S_, A, R):
-    if S and S_ and A in [0, 1] and str(S) in Q and str(S_) in Q:
-        Q[str(S)][A] = (1 - qlAlpha) * Q[str(S)][A] + qlAlpha * (R + qlGamma * max(Q[str(S_)]))
-    return Q
-
-
-def updateQL(state):
-    S_Next = getQlState(state)
-    if not str(S_Next) in ql.Q:
-        ql.Q[str(S_Next)] = [0, 0]
-    Q = ql.Q
-    S = ql.S
-    A = ql.A
-    if not state['mode']:
-        ql.Q = updateQ(Q, S, S_Next, A, qlAliveReward)
-        ql.S = S_Next
-        A_Next = 0
-        # ε-greedy
-        if (random.random() < qlEpsilon):
-            A_Next = 1 if random.random() < qlExploreJumpRate else 0
-        elif str(S_Next) in ql.Q:
-            A_Next = 1 if ql.Q[str(S_Next)][0] < ql.Q[str(S_Next)][1] else 0
-        ql.A = A_Next
-    else:
-        ql.Q = updateQ(Q, S, S_Next, A, qlDeadReward)
-        ql.refresh()
-
-
-def getQlState(state):
-    pipeList = state['pipes']
-    index = 0
-    for i in range(len(pipeList)):
-        if pipeList[i]['x'] + IMAGES['pipe'][0].get_width() >= state['playerx']:
-            index = i
-            break
-    S = [math.floor((pipeList[index]['x'] - state['playerx'] + IMAGES['pipe'][0].get_width()) / qlResolution),
-         math.floor((pipeList[index]['y'] - state['playery']) / qlResolution)]
-    return S
-
 
 def main():
     global SCREEN, FPSCLOCK
@@ -192,12 +130,13 @@ def main():
 
         movementInfo = showWelcomeAnimation()
         crashInfo = mainGame(movementInfo)
-        showGameOverScreen(crashInfo)
-        global qlRound
-        qlRound = qlRound + 1
-        print("Round: " + str(qlRound))
-        print("Q table: " + str(len(ql.Q)))
-        print("MAx score: " + str(maxScore))
+        # showGameOverScreen(crashInfo)
+        # global qlRound
+        # qlRound = qlRound + 1
+        if bot.qlRound % 100 == 0:
+            print("Round: " + str(bot.qlRound))
+            print("Q table: " + str(len(bot.Q)))
+            print("MAx score: " + str(bot.maxScore))
         # print(ql.Q)
         # os.system("pause")
 
@@ -225,8 +164,9 @@ def showWelcomeAnimation():
     playerShmVals = {'val': 0, 'dir': 1}
 
     while True:
-        ql.refresh()
-        if ql.enableQL == True:
+        # ql.refresh()
+        # if ql.enableQL == True:
+        if bot.enableQL == True:
             return {
                 'playery': playery + playerShmVals['val'],
                 'basex': basex,
@@ -236,7 +176,7 @@ def showWelcomeAnimation():
             if event.type == QUIT or (event.type == KEYDOWN and event.key == K_ESCAPE):
                 pygame.quit()
                 sys.exit()
-            if event.type == KEYDOWN and (event.key == K_SPACE or event.key == K_UP) and ql.enableQL == False:
+            if event.type == KEYDOWN and (event.key == K_SPACE or event.key == K_UP) and bot.enableQL == False:
                 # make first flap sound and return values for mainGame
                 # SOUNDS['wing'].play()
                 return {
@@ -301,25 +241,26 @@ def mainGame(movementInfo):
     playerFlapped = False  # True when player flaps
     crashTest = [True, True]
     while True:
-        if ql.enableQL == True:
+        if bot.enableQL == True:
             state = {
                 'pipes': lowerPipes,
-                'playerx': playerx,
-                'playery': playery,
-                'mode': crashTest[0]
+                'pipeWidth': IMAGES['pipe'][0].get_width(),
+                'playerX': playerx,
+                'playerY': playery,
+                'mode': crashTest[0],
+                'yVel': playerVelY
             }
-            updateQL(state)
-            move = ql.A
+            # updateQL(state)
+            move = bot.move(state)
             if move == 1:
                 if playery > -2 * IMAGES['player'][0].get_height():
                     playerVelY = playerFlapAcc
                     playerFlapped = True
-            step = 0
         for event in pygame.event.get():
             if event.type == QUIT or (event.type == KEYDOWN and event.key == K_ESCAPE):
                 pygame.quit()
                 sys.exit()
-            if event.type == KEYDOWN and (event.key == K_SPACE or event.key == K_UP) and ql.enableQL == False:
+            if event.type == KEYDOWN and (event.key == K_SPACE or event.key == K_UP) and bot.enableQL == False:
                 if playery > -2 * IMAGES['player'][0].get_height():
                     playerVelY = playerFlapAcc
                     playerFlapped = True
@@ -335,8 +276,8 @@ def mainGame(movementInfo):
         crashTest = checkCrash({'x': playerx, 'y': playery, 'index': playerIndex},
                                upperPipes, lowerPipes)
         if crashTest[0]:
-            if ql.enableQL == True:
-                updateQL(state)
+            if bot.enableQL == True:
+                bot.updateQL()
             return {
                 'y': playery,
                 'groundCrash': crashTest[1],
@@ -349,14 +290,13 @@ def mainGame(movementInfo):
             }
 
         # check for score
-        global maxScore
         playerMidPos = playerx + IMAGES['player'][0].get_width() / 2
         for pipe in upperPipes:
             pipeMidPos = pipe['x'] + IMAGES['pipe'][0].get_width() / 2
             if pipeMidPos <= playerMidPos < pipeMidPos + 4:
                 score += 1
-                if score > maxScore:
-                    maxScore = score
+                if score > bot.maxScore:
+                    bot.maxScore = score
                 # SOUNDS['point'].play()
 
         # playerIndex basex change
@@ -441,14 +381,14 @@ def showGameOverScreen(crashInfo):
     #     SOUNDS['die'].play()
 
     while True:
-        if ql.enableQL == True:
+        if bot.enableQL == True:
             if playery + playerHeight >= BASEY - 1:
                 return
         for event in pygame.event.get():
             if event.type == QUIT or (event.type == KEYDOWN and event.key == K_ESCAPE):
                 pygame.quit()
                 sys.exit()
-            if event.type == KEYDOWN and (event.key == K_SPACE or event.key == K_UP) and ql.enableQL == False:
+            if event.type == KEYDOWN and (event.key == K_SPACE or event.key == K_UP) and bot.enableQL == False:
                 if playery + playerHeight >= BASEY - 1:
                     return
 
